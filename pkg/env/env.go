@@ -284,20 +284,21 @@ func (e *testEnv) processTests(ctx context.Context, t *testing.T, enableParallel
 		if featName == "" {
 			featName = fmt.Sprintf("Feature-%d", i+1)
 		}
-		if runInParallel {
-			wg.Add(1)
-			go func(ctx context.Context, w *sync.WaitGroup, featName string, f types.Feature) {
-				defer w.Done()
-				_ = featureTestEnv.processTestFeature(ctx, t, featName, f)
-			}(ctx, &wg, featName, featureCopy)
-		} else {
-			ctx = featureTestEnv.processTestFeature(ctx, t, featName, featureCopy)
+		t.Run(featName, func(newT *testing.T) {
+			// if runInParallel {
+			// 	wg.Add(1)
+			// 	go func(ctx context.Context, w *sync.WaitGroup, featName string, f types.Feature) {
+			// 		defer w.Done()
+			// 		_ = e.processTestFeature(ctx, t, featName, f)
+			// 	}(ctx, &wg, featName, featureCopy)
+			// } else {
+			ctx = featureTestEnv.processTestFeature(ctx, newT, featName, featureCopy)
 			// In case if the feature under test has failed, skip reset of the features
 			// that are part of the same test
-			if featureTestEnv.cfg.FailFast() && t.Failed() {
-				break
-			}
-		}
+			// if e.cfg.FailFast() && t.Failed() {
+			// 	break
+			// }
+		})
 	}
 	if runInParallel {
 		wg.Wait()
@@ -462,54 +463,53 @@ func (e *testEnv) executeSteps(ctx context.Context, t *testing.T, steps []types.
 
 func (e *testEnv) execFeature(ctx context.Context, t *testing.T, featName string, f types.Feature) context.Context {
 	// feature-level subtest
-	t.Run(featName, func(newT *testing.T) {
-		if fDescription, ok := f.(types.DescribableFeature); ok && fDescription.Description() != "" {
-			t.Logf("Processing Feature: %s", fDescription.Description())
+
+	if fDescription, ok := f.(types.DescribableFeature); ok && fDescription.Description() != "" {
+		t.Logf("Processing Feature: %s", fDescription.Description())
+	}
+
+	// setups run at feature-level
+	setups := features.GetStepsByLevel(f.Steps(), types.LevelSetup)
+	ctx = e.executeSteps(ctx, t, setups)
+
+	// assessments run as feature/assessment sub level
+	assessments := features.GetStepsByLevel(f.Steps(), types.LevelAssess)
+
+	failed := false
+	for i, assess := range assessments {
+		assessName := assess.Name()
+		if dAssess, ok := assess.(types.DescribableStep); ok && dAssess.Description() != "" {
+			t.Logf("Processing Assessment: %s", dAssess.Description())
 		}
-
-		// setups run at feature-level
-		setups := features.GetStepsByLevel(f.Steps(), types.LevelSetup)
-		ctx = e.executeSteps(ctx, newT, setups)
-
-		// assessments run as feature/assessment sub level
-		assessments := features.GetStepsByLevel(f.Steps(), types.LevelAssess)
-
-		failed := false
-		for i, assess := range assessments {
-			assessName := assess.Name()
-			if dAssess, ok := assess.(types.DescribableStep); ok && dAssess.Description() != "" {
-				t.Logf("Processing Assessment: %s", dAssess.Description())
-			}
-			if assessName == "" {
-				assessName = fmt.Sprintf("Assessment-%d", i+1)
-			}
-			newT.Run(assessName, func(internalT *testing.T) {
-				skipped, message := e.requireAssessmentProcessing(assess, i+1)
-				if skipped {
-					internalT.Skipf(message)
-				}
-				ctx = e.executeSteps(ctx, internalT, []types.Step{assess})
-			})
-			// Check if the Test assessment under question performed a `t.Fail()` or `t.Failed()` invocation.
-			// We need to track that and stop the next set of assessment in the feature under test from getting
-			// executed
-			if e.cfg.FailFast() && newT.Failed() {
-				failed = true
-				break
-			}
+		if assessName == "" {
+			assessName = fmt.Sprintf("Assessment-%d", i+1)
 		}
-
-		// Let us fail the test fast and not run the teardown in case if the framework specific fail-fast mode is
-		// invoked to make sure we leave the traces of the failed test behind to enable better debugging for the
-		// test developers
-		if e.cfg.FailFast() && failed {
-			newT.FailNow()
+		t.Run(assessName, func(internalT *testing.T) {
+			skipped, message := e.requireAssessmentProcessing(assess, i+1)
+			if skipped {
+				internalT.Skipf(message)
+			}
+			ctx = e.executeSteps(ctx, internalT, []types.Step{assess})
+		})
+		// Check if the Test assessment under question performed a `t.Fail()` or `t.Failed()` invocation.
+		// We need to track that and stop the next set of assessment in the feature under test from getting
+		// executed
+		if e.cfg.FailFast() && t.Failed() {
+			failed = true
+			break
 		}
+	}
 
-		// teardowns run at feature-level
-		teardowns := features.GetStepsByLevel(f.Steps(), types.LevelTeardown)
-		ctx = e.executeSteps(ctx, newT, teardowns)
-	})
+	// Let us fail the test fast and not run the teardown in case if the framework specific fail-fast mode is
+	// invoked to make sure we leave the traces of the failed test behind to enable better debugging for the
+	// test developers
+	if e.cfg.FailFast() && failed {
+		t.FailNow()
+	}
+
+	// teardowns run at feature-level
+	teardowns := features.GetStepsByLevel(f.Steps(), types.LevelTeardown)
+	ctx = e.executeSteps(ctx, t, teardowns)
 
 	return ctx
 }

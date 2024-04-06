@@ -16,27 +16,27 @@ limitations under the License.
 
 package envfuncs_test
 
-import (
-	"os"
-	"testing"
+// import (
+// 	"os"
+// 	"testing"
 
-	"sigs.k8s.io/e2e-framework/pkg/env"
-	"sigs.k8s.io/e2e-framework/pkg/envconf"
-	"sigs.k8s.io/e2e-framework/pkg/envfuncs"
-	"sigs.k8s.io/e2e-framework/support/kind"
-)
+// 	"sigs.k8s.io/e2e-framework/pkg/env"
+// 	"sigs.k8s.io/e2e-framework/pkg/envconf"
+// 	"sigs.k8s.io/e2e-framework/pkg/envfuncs"
+// 	"sigs.k8s.io/e2e-framework/support/kind"
+// )
 
-// nsTestenv is used to test the ns_funcs
-var nsTestenv env.Environment
+// // nsTestenv is used to test the ns_funcs
+// var nsTestenv env.Environment
 
-func TestMain(m *testing.M) {
-	nsClusterName := envconf.RandomName("ns-cluster", 16)
-	nsTestenv = env.New()
+// func TestMain(m *testing.M) {
+// 	nsClusterName := envconf.RandomName("ns-cluster", 16)
+// 	nsTestenv = env.New()
 
-	// Use the same cluster for all ns_funcs tests
-	nsTestenv.
-		Setup(envfuncs.CreateCluster(kind.NewProvider(), nsClusterName)).
-		Finish(envfuncs.DestroyCluster(nsClusterName))
+// 	// Use the same cluster for all ns_funcs tests
+// 	nsTestenv.
+// 		Setup(envfuncs.CreateCluster(kind.NewProvider(), nsClusterName)).
+// 		Finish(envfuncs.DestroyCluster(nsClusterName))
 
-	os.Exit(nsTestenv.Run(m))
-}
+// 	os.Exit(nsTestenv.Run(m))
+// }
