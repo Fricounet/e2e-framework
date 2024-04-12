@@ -24,7 +24,6 @@ import (
 	"regexp"
 	"runtime/debug"
 	"sort"
-	"sync"
 	"testing"
 
 	klog "k8s.io/klog/v2"
@@ -122,8 +121,9 @@ func newTestEnvWithParallel() *testEnv {
 // creates a deep copy of the config so that it can be mutated without
 // affecting the parent's.
 func newChildTestEnv(e *testEnv) *testEnv {
+	childCtx, _ := context.WithCancel(e.ctx)
 	return &testEnv{
-		ctx:     e.ctx,
+		ctx:     childCtx,
 		cfg:     e.deepCopyConfig(),
 		actions: e.actions,
 	}
@@ -268,15 +268,15 @@ func (e *testEnv) processTests(ctx context.Context, t *testing.T, enableParallel
 	beforeTestActions := dedicatedTestEnv.getBeforeTestActions()
 	afterTestActions := dedicatedTestEnv.getAfterTestActions()
 
-	runInParallel := dedicatedTestEnv.cfg.ParallelTestEnabled() && enableParallelRun
+	// runInParallel := e.cfg.ParallelTestEnabled() && enableParallelRun
 
-	if runInParallel {
-		klog.V(4).Info("Running test features in parallel")
-	}
+	// if runInParallel {
+	// 	klog.V(4).Info("Running test features in parallel")
+	// }
 
-	ctx = dedicatedTestEnv.processTestActions(ctx, t, beforeTestActions)
+	dedicatedTestEnv.ctx = dedicatedTestEnv.processTestActions(dedicatedTestEnv.ctx, t, beforeTestActions)
 
-	var wg sync.WaitGroup
+	// var wg sync.WaitGroup
 	for i, feature := range testFeatures {
 		featureTestEnv := newChildTestEnv(dedicatedTestEnv)
 		featureCopy := feature
@@ -284,26 +284,20 @@ func (e *testEnv) processTests(ctx context.Context, t *testing.T, enableParallel
 		if featName == "" {
 			featName = fmt.Sprintf("Feature-%d", i+1)
 		}
+		// Run the feature in its own subtest to allow for parallel testing of features
 		t.Run(featName, func(newT *testing.T) {
-			// if runInParallel {
-			// 	wg.Add(1)
-			// 	go func(ctx context.Context, w *sync.WaitGroup, featName string, f types.Feature) {
-			// 		defer w.Done()
-			// 		_ = e.processTestFeature(ctx, t, featName, f)
-			// 	}(ctx, &wg, featName, featureCopy)
-			// } else {
-			ctx = featureTestEnv.processTestFeature(ctx, newT, featName, featureCopy)
-			// In case if the feature under test has failed, skip reset of the features
-			// that are part of the same test
-			// if e.cfg.FailFast() && t.Failed() {
-			// 	break
-			// }
+			featureTestEnv.ctx = featureTestEnv.processTestFeature(featureTestEnv.ctx, newT, featName, featureCopy)
 		})
+		// In case if the feature under test has failed, skip reset of the features
+		// that are part of the same test
+		if featureTestEnv.cfg.FailFast() && t.Failed() {
+			break
+		}
 	}
-	if runInParallel {
-		wg.Wait()
-	}
-	return dedicatedTestEnv.processTestActions(ctx, t, afterTestActions)
+	// if runInParallel {
+	// 	wg.Wait()
+	// }
+	return dedicatedTestEnv.processTestActions(dedicatedTestEnv.ctx, t, afterTestActions)
 }
 
 // TestInParallel executes a series a feature tests from within a
