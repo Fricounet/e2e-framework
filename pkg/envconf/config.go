@@ -75,6 +75,9 @@ func NewFromFlags() (*Config, error) {
 	e.labels = envFlags.Labels()
 	e.namespace = envFlags.Namespace()
 	e.kubeconfig = envFlags.Kubeconfig()
+	if envFlags.Kubeconfig() != "" {
+		e.WithKubeconfigFile(envFlags.Kubeconfig())
+	}
 	if envFlags.SkipFeatures() != "" {
 		e.skipFeatureRegex = regexp.MustCompile(envFlags.SkipFeatures())
 	}
@@ -91,9 +94,16 @@ func NewFromFlags() (*Config, error) {
 	return e, nil
 }
 
-// WithKubeconfigFile creates a new klient.Client and injects it in the cfg
+// WithKubeconfigFile updates the environment kubeconfig. It also configures
+// the cfg with a new klient.Client using the specified kubeconfig file.
+// Will panic on error.
 func (c *Config) WithKubeconfigFile(kubecfg string) *Config {
+	var err error
 	c.kubeconfig = kubecfg
+	c.client, err = klient.NewWithKubeConfigFile(kubecfg)
+	if err != nil {
+		panic(fmt.Errorf("failed to create a new client with kubeconfig %s, %v", kubecfg, err))
+	}
 	return c
 }
 
@@ -107,14 +117,14 @@ func (c *Config) WithClient(client klient.Client) *Config {
 	return c
 }
 
-// NewClient is a constructor function that returns a previously
-// created klient.Client or create a new one based on configuration
-// previously set. Will return an error if unable to do so.
-func (c *Config) NewClient() (klient.Client, error) {
-	if c.client != nil {
-		return c.client, nil
-	}
+// Client returns the client for the environment
+func (c *Config) Client() klient.Client {
+	return c.client
+}
 
+// NewClient is a constructor function that creates a new klient.Client
+// based on configuration previously set. Will return an error if unable to do so.
+func (c *Config) NewClient() (klient.Client, error) {
 	client, err := klient.NewWithKubeConfigFile(c.kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("envconfig: client failed: %w", err)
@@ -124,22 +134,16 @@ func (c *Config) NewClient() (klient.Client, error) {
 	return c.client, nil
 }
 
-// Client is a constructor function that returns a previously
-// created klient.Client or creates a new one based on configuration
-// previously set. Will panic on any error so it is recommended that you
-// are confident in the configuration or call NewClient() to ensure its
-// safe creation.
-func (c *Config) Client() klient.Client {
-	if c.client != nil {
-		return c.client
-	}
-
-	client, err := klient.NewWithKubeConfigFile(c.kubeconfig)
+// MustNewClient is a constructor function that creates a new klient.Client
+// based on configuration previously set. Will panic on any error so it is
+// recommended that you are confident in the configuration or call NewClient()
+// to ensure its safe creation.
+func (c *Config) MustNewClient() klient.Client {
+	client, err := c.NewClient()
 	if err != nil {
-		panic(fmt.Errorf("envconfig: client failed: %w", err).Error())
+		panic(err)
 	}
-	c.client = client
-	return c.client
+	return client
 }
 
 // WithNamespace updates the environment namespace value
